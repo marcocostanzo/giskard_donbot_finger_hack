@@ -15,6 +15,9 @@ class GiskardDonbotFingerHack(object):
 
     def __init__(self):
 
+        self.vel_thr = 0.01
+        self.position_thr = 0.01
+
         rospy.init_node('giskard_donbot_finger_hack')
 
         self.topic_joint_state = '/body/joint_states'
@@ -52,7 +55,7 @@ class GiskardDonbotFingerHack(object):
     def callback(self, goal):
         self.success = True
 
-        rospy.loginfo('=======================\n\n\n\n\n\n\n\n\n\n\n')
+        rospy.loginfo('=======================\n')
         rospy.loginfo('HACK: received goal')
 
         grasped = self.checkGrasped()
@@ -61,7 +64,7 @@ class GiskardDonbotFingerHack(object):
             timestamps, action_type = self.computeSlippingAvoidanceActivations(goal)
             initial_j_state = self.getJointState()
 
-        self._ac.send_goal(goal, done_cb=None, active_cb=None, feedback_cb=self.feedback_cb )
+        self._ac.send_goal(goal, done_cb=None, active_cb=None, feedback_cb=self.feedback_cb)
 
         if grasped:
             rospy.loginfo('HACK GOAL SENT:')
@@ -77,8 +80,9 @@ class GiskardDonbotFingerHack(object):
             result = self._ac.get_result()
             if result and result.error_code != control_msgs.msg.FollowJointTrajectoryResult.SUCCESSFUL:
                 rospy.logerr(u'didn\'t receive successful from {} {}'.format(self._ac.action_client.ns, result))
-
-        self._as.set_succeeded(result)
+            self._as.set_succeeded(result)
+        else:
+            self._as.set_succeeded()
 
     def feedback_cb(self, feedback):
         self._as.publish_feedback(feedback)
@@ -88,18 +92,16 @@ class GiskardDonbotFingerHack(object):
 
     def computeSlippingAvoidanceActivations(self, goal):
         refills_finger_joint_index = 9
-        vel_thr = 0.01
         # First action is pivoting
-        #rospy.loginfo(goal)
         timestamps = []
         action_type = []
         for point in goal.trajectory.points:
             finger_vel = point.velocities[refills_finger_joint_index]
-            if abs(finger_vel) <= vel_thr and ( len(timestamps) == 0 or action_type[-1] == 'pivoting' ):
+            if abs(finger_vel) <= self.vel_thr and (len(timestamps) == 0 or action_type[-1] == 'pivoting'):
                 timestamps.append(point.time_from_start)
                 action_type.append('slipping_avoidance')
             else:
-                if abs(finger_vel) > vel_thr and ( len(timestamps) > 0 and action_type[-1] == 'slipping_avoidance' ):
+                if abs(finger_vel) > self.vel_thr and (len(timestamps) > 0 and action_type[-1] == 'slipping_avoidance'):
                     timestamps.append(point.time_from_start)
                     action_type.append('pivoting')
         # Last action is pivoting
@@ -114,29 +116,22 @@ class GiskardDonbotFingerHack(object):
 
     def getJointState(self):
         joint_state = rospy.wait_for_message(self.topic_joint_state, JointState)
+        # Get only the arm values
         joint_state.name = joint_state.name[1:7]
         joint_state.effort = joint_state.effort[1:7]
         joint_state.position = joint_state.position[1:7]
         joint_state.velocity = joint_state.velocity[1:7]
-        # rospy.loginfo('Hack joint state:')
-        # rospy.loginfo(joint_state)
         return joint_state
 
     def waitForMotion(self, initial_j_state, final_j_position):
 
-        position_thr = 0.01
-
         rospy.loginfo('HACK: wait for motion')
         joint_state = self.getJointState()
-        while(numpy.linalg.norm(numpy.array(initial_j_state.position) - numpy.array(final_j_position)) > position_thr
+        while(numpy.linalg.norm(numpy.array(initial_j_state.position) - numpy.array(final_j_position))
+              > self.position_thr
               and
               numpy.linalg.norm(joint_state.velocity) == 0.0):
             joint_state = self.getJointState()
-
-        # motion_thr = 0.1
-        # position = numpy.array(initial_j_state.position)
-        # while( numpy.linalg.norm( position - initial_j_state.position ) < motion_thr ):
-        #     position = numpy.array(self.getJointPosition())
 
         rospy.loginfo('HACK: wait for motion END')
 
@@ -148,17 +143,15 @@ class GiskardDonbotFingerHack(object):
         last_time = time_zero + time_from_starts[-1]
         next_index = 0
         next_time = time_zero + time_from_starts[next_index]
-        print("Hack: time_zero= %i", time_zero.to_sec())
-        print("Hack: next_time= %i", next_time.to_sec())
 
         # While not end
-        while time_now<last_time:
+        while time_now < last_time:
 
             # check if now is less than nex
             if time_now < next_time:
                 # in this case i can wait for the nex_time
-                print("slipping for ", (next_time - time_now).to_sec() )
-                rospy.sleep( next_time - time_now )
+                print("HACK: sleeping for 4 ", (next_time - time_now).to_sec())
+                rospy.sleep(next_time - time_now)
                 # now i can activate the action
                 rospy.loginfo('HACK: Execution of action %i', next_index)
                 self.executeAction(actions_type[next_index])
@@ -169,10 +162,11 @@ class GiskardDonbotFingerHack(object):
                     break
                 next_time = time_zero + time_from_starts[next_index]
                 print("Hack: next_time= %i", next_time.to_sec())
+
             # if time_now is > than next_time
             else:
                 # update the next_index (find the next time)
-                for jj in range( next_index+1, len(time_from_starts) ):
+                for jj in range(next_index+1, len(time_from_starts)):
                     rospy.logwarn("HACK: Missed action %i", jj-1)
                     next_time = time_zero + time_from_starts[jj]
                     print("Hack: next_time= %i", next_time.to_sec())
@@ -199,14 +193,12 @@ class GiskardDonbotFingerHack(object):
 
     def executeAction(self, action_str):
         if action_str == 'pivoting':
-            #self.gripper.slippingControlGripperPivoting()
             self.pubdbg.publish('GripperPivoting')
             rospy.loginfo('HACK: GripperPivoting')
             self.gripper.gripper_pivoting()
         elif action_str == 'slipping_avoidance':
             self.pubdbg.publish('SlippingAvoidance')
             rospy.loginfo('HACK: SlippingAvoidance')
-            #self.gripper.slippingControlSlippingAvoidance()
             self.gripper.slipping_avoidance()
         else:
             raise Exception('Invalid action_str!')
