@@ -67,8 +67,8 @@
     <remap from="/whole_body_controller/follow_joint_trajectory" to="/whole_body_controller/delayed_follow_joint_trajectory"/>
   </node>
 
-<!--
+
   <node pkg="giskard_donbot_finger_hack" type="giskard_donbot_finger_hack.py" name="giskard_donbot_finger_hack" output="screen"/>
--->
+
 
 </launch>

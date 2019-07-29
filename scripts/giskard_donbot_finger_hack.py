@@ -22,7 +22,7 @@ class GiskardDonbotFingerHack(object):
 
         self.topic_joint_state = '/body/joint_states'
 
-        self.gripper = Gripper(False)
+        self.gripper = Gripper(True)
 
         # Input Action
         self._as = actionlib.SimpleActionServer('/whole_body_controller/follow_joint_trajectory',
@@ -150,7 +150,7 @@ class GiskardDonbotFingerHack(object):
             # check if now is less than nex
             if time_now < next_time:
                 # in this case i can wait for the nex_time
-                print("HACK: sleeping for 4 ", (next_time - time_now).to_sec())
+                print("HACK: sleeping for ", (next_time - time_now).to_sec())
                 rospy.sleep(next_time - time_now)
                 # now i can activate the action
                 rospy.loginfo('HACK: Execution of action %i', next_index)
@@ -161,7 +161,7 @@ class GiskardDonbotFingerHack(object):
                 if next_index >= len(time_from_starts):
                     break
                 next_time = time_zero + time_from_starts[next_index]
-                print("Hack: next_time= %i", next_time.to_sec())
+                print("Hack: next_time= ", next_time.to_sec())
 
             # if time_now is > than next_time
             else:
