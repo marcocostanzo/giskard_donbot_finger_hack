@@ -22,7 +22,7 @@ class GiskardDonbotFingerHack(object):
 
         self.topic_joint_state = '/body/joint_states'
 
-        self.gripper = Gripper(True)
+        self.gripper = Gripper(False)
 
         # Input Action
         self._as = actionlib.SimpleActionServer('/whole_body_controller/follow_joint_trajectory',
@@ -62,7 +62,7 @@ class GiskardDonbotFingerHack(object):
 
         if grasped:
             timestamps, action_type = self.computeSlippingAvoidanceActivations(goal)
-            initial_j_state = self.getJointState()
+            position, _ = self.getJointState()
 
         self._ac.send_goal(goal, done_cb=None, active_cb=None, feedback_cb=self.feedback_cb)
 
@@ -70,7 +70,7 @@ class GiskardDonbotFingerHack(object):
             rospy.loginfo('HACK GOAL SENT:')
             rospy.loginfo(timestamps)
             rospy.loginfo(action_type)
-            time_zero = self.waitForMotion(initial_j_state, goal.trajectory.points[-1].positions[3:9])
+            time_zero = self.waitForMotion(position, self.getFinalPos(goal))
             self.executeActions(time_zero, timestamps, action_type)
 
         # Wait for result
@@ -84,6 +84,25 @@ class GiskardDonbotFingerHack(object):
         else:
             self._as.set_succeeded()
 
+    def getFinalPos(self, goal):
+        """
+        :type goal: control_msgs.msg._FollowJointTrajectoryGoal.FollowJointTrajectoryGoal
+        :return:
+        """
+        j_names = [u'ur5_shoulder_pan_joint',
+                   u'ur5_shoulder_lift_joint',
+                   u'ur5_elbow_joint',
+                   u'ur5_wrist_1_joint',
+                   u'ur5_wrist_2_joint',
+                   u'ur5_wrist_3_joint'
+                   ]
+        last_point = goal.trajectory.points[-1]
+        position = []
+        for name in j_names:
+            i = goal.trajectory.joint_names.index(name)
+            position.append(last_point.positions[i])
+        return position
+
     def feedback_cb(self, feedback):
         self._as.publish_feedback(feedback)
 
@@ -91,7 +110,11 @@ class GiskardDonbotFingerHack(object):
         return self.gripper.is_grasped()
 
     def computeSlippingAvoidanceActivations(self, goal):
-        refills_finger_joint_index = 9
+        """
+        :type goal: control_msgs.msg._FollowJointTrajectoryGoal.FollowJointTrajectoryGoal
+        :return:
+        """
+        refills_finger_joint_index = goal.trajectory.joint_names.index(u'refills_finger_joint')
         # First action is pivoting
         timestamps = []
         action_type = []
@@ -115,23 +138,32 @@ class GiskardDonbotFingerHack(object):
         return timestamps, action_type
 
     def getJointState(self):
-        joint_state = rospy.wait_for_message(self.topic_joint_state, JointState)
+        joint_state = rospy.wait_for_message(self.topic_joint_state, JointState)  # type: JointState
         # Get only the arm values
-        joint_state.name = joint_state.name[1:7]
-        joint_state.effort = joint_state.effort[1:7]
-        joint_state.position = joint_state.position[1:7]
-        joint_state.velocity = joint_state.velocity[1:7]
-        return joint_state
+        j_names = [ u'ur5_shoulder_pan_joint',
+                    u'ur5_shoulder_lift_joint',
+                    u'ur5_elbow_joint',
+                    u'ur5_wrist_1_joint',
+                    u'ur5_wrist_2_joint',
+                    u'ur5_wrist_3_joint'
+                  ]
+        position = []
+        velocity = []
+        for name in j_names:
+            i = joint_state.name.index(name)
+            position.append(joint_state.position[i])
+            velocity.append(joint_state.velocity[i])
+        return position, velocity
 
-    def waitForMotion(self, initial_j_state, final_j_position):
+    def waitForMotion(self, position, final_j_position):
 
         rospy.loginfo('HACK: wait for motion')
-        joint_state = self.getJointState()
-        while(numpy.linalg.norm(numpy.array(initial_j_state.position) - numpy.array(final_j_position))
+        _, velocity = self.getJointState()
+        while(numpy.linalg.norm(numpy.array(position) - numpy.array(final_j_position))
               > self.position_thr
               and
-              numpy.linalg.norm(joint_state.velocity) == 0.0):
-            joint_state = self.getJointState()
+              numpy.linalg.norm(velocity) == 0.0):
+            _, velocity = self.getJointState()
 
         rospy.loginfo('HACK: wait for motion END')
 
