@@ -16,6 +16,7 @@ class GiskardDonbotFingerHack(object):
     def __init__(self):
 
         self.vel_thr = 0.01
+        self.wait_for_motion_vel_thr = 0.001
         self.position_thr = 0.01
         self.min_slipping_avoidance_duration = 0.9
 
@@ -194,7 +195,7 @@ class GiskardDonbotFingerHack(object):
         while(numpy.linalg.norm(numpy.array(position) - numpy.array(final_j_position))
               > self.position_thr
               and
-              numpy.linalg.norm(velocity) == 0.0):
+              numpy.linalg.norm(velocity) < self.wait_for_motion_vel_thr):
             _, velocity = self.getJointState()
 
         rospy.loginfo('HACK: wait for motion END')
