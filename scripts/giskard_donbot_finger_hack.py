@@ -17,6 +17,7 @@ class GiskardDonbotFingerHack(object):
 
         self.vel_thr = 0.01
         self.position_thr = 0.01
+        self.min_slipping_avoidance_duration = 0.9
 
         rospy.init_node('giskard_donbot_finger_hack')
 
@@ -131,8 +132,39 @@ class GiskardDonbotFingerHack(object):
         timestamps.append(goal.trajectory.points[-1].time_from_start)
         action_type.append('pivoting')
         # add element with Duration(0) it id does not exist
-        if timestamps[0] > rospy.Duration(0.0):
-            timestamps.insert(0, rospy.Duration(0.0))
+        if timestamps[0] > rospy.Duration.from_sec(0.0):
+            timestamps.insert(0, rospy.Duration.from_sec(0.0))
+            action_type.insert(0, 'pivoting')
+
+        # Remove period where slipping_avoidance is too short
+        i = 0
+        while i < (len(timestamps)-1):
+            if action_type[i] == 'slipping_avoidance':
+                # check duration
+                duration_ = timestamps[i+1] - timestamps[i]
+                if duration_ < rospy.Duration.from_sec(self.min_slipping_avoidance_duration):
+                    rospy.logwarn('HACK: removing short slipping_avoidance')
+                    timestamps.pop(i)
+                    action_type.pop(i)
+            i = i+1
+
+        # Find duplicated
+        i = 0
+        while i < (len(action_type)-1):
+            if action_type[i] == action_type[i+1]:
+                timestamps.pop(i+1)
+                action_type.pop(i+1)
+            else:
+                i = i+1
+
+        # Last check maybe useless
+        if len(action_type) == 1:
+            if action_type[0] == 'slipping_avoidance':
+                rospy.logerr('HACK: Only one action that is slipping_avoidance! change to pivoting...')
+                action_type[0] = 'pivoting'
+        elif len(action_type) == 0:
+            rospy.logerr('HACK: NO ACTION AFTER THE ALGORITHM... I should not be here...')
+            timestamps.insert(0, rospy.Duration.from_sec(0.0))
             action_type.insert(0, 'pivoting')
 
         return timestamps, action_type
@@ -175,6 +207,7 @@ class GiskardDonbotFingerHack(object):
         last_time = time_zero + time_from_starts[-1]
         next_index = 0
         next_time = time_zero + time_from_starts[next_index]
+        last_action = ''
 
         # While not end
         while time_now < last_time:
@@ -187,6 +220,7 @@ class GiskardDonbotFingerHack(object):
                 # now i can activate the action
                 rospy.loginfo('HACK: Execution of action %i', next_index)
                 self.executeAction(actions_type[next_index])
+                last_action = actions_type[next_index]
                 # prepare for nex while iteration
                 next_index = next_index + 1
                 # if there are no more action -> break the while
@@ -214,14 +248,16 @@ class GiskardDonbotFingerHack(object):
                 # make sure to apply the action now
                 rospy.loginfo('HACK: Execution of action %i', next_index-1)
                 self.executeAction(actions_type[next_index-1])
+                last_action = actions_type[next_index]
                 rospy.logwarn('HACK: Action executed with delay')
 
             # Update variables for the next while cycle
             time_now = rospy.Time.now()
 
         # Last action must be pivoting?
-        rospy.loginfo('HACK: Execution of last pivoting action')
-        self.executeAction('pivoting')
+        if last_action != 'pivoting':
+            rospy.loginfo('HACK: Execution of last pivoting action')
+            self.executeAction('pivoting')
 
     def executeAction(self, action_str):
         if action_str == 'pivoting':
