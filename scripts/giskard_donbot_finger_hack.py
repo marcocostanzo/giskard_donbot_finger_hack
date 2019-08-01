@@ -24,7 +24,7 @@ class GiskardDonbotFingerHack(object):
 
         self.topic_joint_state = '/body/joint_states'
 
-        self.gripper = Gripper(False)
+        self.gripper = Gripper(True)
 
         # Input Action
         self._as = actionlib.SimpleActionServer('/whole_body_controller/follow_joint_trajectory',
